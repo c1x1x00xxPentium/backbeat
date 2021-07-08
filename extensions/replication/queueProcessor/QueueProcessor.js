@@ -22,58 +22,12 @@ const EchoBucket = require('../tasks/EchoBucket');
 const ObjectQueueEntry = require('../utils/ObjectQueueEntry');
 const BucketQueueEntry = require('../utils/BucketQueueEntry');
 const constants = require('../../../lib/constants');
-const { wrapCounterInc, wrapGaugeSet } = require('../../../lib/util/metrics');
+const metricsHandler = require('../../../lib/util/metricsHandler');
 
 const {
     proxyVaultPath,
     proxyIAMPath,
 } = require('../constants');
-const metricLabels = ['origin', 'containerName', 'replicationStatus'];
-promClient.register.setDefaultLabels({
-    origin: 'replication',
-    containerName: process.env.CONTAINER_NAME || '',
-});
-
-/**
- * Labels used for Prometheus metrics
- * @typedef {Object} MetricLabels
- * @property {string} origin - Method that began the replication
- * @property {string} containerName - Name of the container running our process
- * @property {string} [replicationStatus] - Result of the replications status
- * @property {string} [partition] - What kafka partition relates to the metric
- * @property {string} [serviceName] - Name of our service to match generic metrics
- */
-
-const dataReplicationStatusMetric = new promClient.Counter({
-    name: 'replication_data_status_changed_total',
-    help: 'Number of status updates',
-    labelNames: metricLabels,
-});
-
-const metadataReplicationStatusMetric = new promClient.Counter({
-    name: 'replication_metadata_status_changed_total',
-    help: 'Number of status updates',
-    labelNames: metricLabels,
-});
-
-const kafkaLagMetric = new promClient.Gauge({
-    name: 'kafka_lag',
-    help: 'Number of update entries waiting to be consumed from the Kafka topic',
-    labelNames: ['origin', 'containerName', 'partition', 'serviceName'],
-});
-
-/**
- * Contains methods to incrememt different metrics
- * @typedef {Object} MetricsHandler
- * @property {CounterInc} dataStatus - Increments the replication status metric for data operation
- * @property {CounterInc} metadataStatus - Increments the replication status metric for metadata operation
- * @property {GaugeSet} lag - Set the kafka lag metric
- */
-const metricsHandler = {
-    dataStatus: wrapCounterInc(dataReplicationStatusMetric),
-    metadataStatus: wrapCounterInc(metadataReplicationStatusMetric),
-    lag: wrapGaugeSet(kafkaLagMetric),
-};
 
 class QueueProcessor extends EventEmitter {
 
