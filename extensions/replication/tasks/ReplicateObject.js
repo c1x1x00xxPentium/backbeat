@@ -139,17 +139,34 @@ class ReplicateObject extends BackbeatTask {
             sourceEntry.toFailedEntry(this.site);
         updatedSourceEntry.setReplicationSiteDataStoreVersionId(this.site,
             sourceEntry.getReplicationSiteDataStoreVersionId(this.site));
+        // TODO: understand when only metadata is updated!
+        const updateData = sourceEntry.getReplicationContent().includes('DATA');
         const kafkaEntries = [updatedSourceEntry.toKafkaEntry(this.site)];
         this.replicationStatusProducer.send(kafkaEntries, err => {
             if (err) {
-                log.error(
-                    'error in entry delivery to replication status topic',
-                    { method: 'ReplicateObject._publishReplicationStatus',
-                      topic: this.repConfig.replicationStatusTopic,
-                      entry: updatedSourceEntry.getLogInfo(),
-                      replicationStatus:
-                      updatedSourceEntry.getReplicationStatus(),
-                      error: err });
+                log.error('error in entry delivery to replication status topic', {
+                    method: 'ReplicateObject._publishReplicationStatus',
+                    topic: this.repConfig.replicationStatusTopic,
+                    entry: updatedSourceEntry.getLogInfo(),
+                    replicationStatus,
+                    error: err,
+                });
+                // TODO: Update failure metric when publish fails?
+            } else {
+                log.info('replication status published', {
+                    topic: this.repConfig.replicationStatusTopic,
+                    entry: updatedSourceEntry.getLogInfo(),
+                    replicationStatus,
+                    reason,
+                });
+                this.metricsHandler.metadataStatus.inc({
+                    replicationStatus,
+                });
+                if (updateData) {
+                    this.metricsHandler.dataStatus.inc({
+                        replicationStatus,
+                    });
+                }
             }
             // Commit whether there was an error or not to allow
             // progress of the consumer, as best effort measure when
@@ -159,12 +176,6 @@ class ReplicateObject extends BackbeatTask {
             if (this.consumer) {
                 this.consumer.onEntryCommittable(kafkaEntry);
             }
-        });
-        log.end().info('replication status published', {
-            topic: this.repConfig.replicationStatusTopic,
-            entry: updatedSourceEntry.getLogInfo(),
-            replicationStatus,
-            reason,
         });
     }
 
