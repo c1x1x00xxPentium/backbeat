@@ -71,7 +71,7 @@ class QueueProcessor extends EventEmitter {
      * @param {MetricsProducer} mProducer - instance of metrics producer
      */
     constructor(kafkaConfig, sourceConfig, destConfig, repConfig,
-                httpsConfig, internalHttpsConfig, site, mProducer) {
+        httpsConfig, internalHttpsConfig, site, mProducer) {
         super();
         this.kafkaConfig = kafkaConfig;
         this.sourceConfig = sourceConfig;
@@ -86,6 +86,7 @@ class QueueProcessor extends EventEmitter {
         this._consumer = null;
         this.site = site;
         this._mProducer = mProducer;
+        this.serviceName = 'ReplicationQueueProcessor';
 
         this.echoMode = false;
 
@@ -138,7 +139,7 @@ class QueueProcessor extends EventEmitter {
 
         if (this.sourceConfig.auth.type === 'role') {
             const { host, port, adminPort, adminCredentials }
-                      = this.sourceConfig.auth.vault;
+                = this.sourceConfig.auth.vault;
             this.vaultclientCache
                 .setHost('source:s3', host)
                 .setPort('source:s3', port);
@@ -154,8 +155,8 @@ class QueueProcessor extends EventEmitter {
                     .setHost('source:admin', host)
                     .setPort('source:admin', adminPort)
                     .loadAdminCredentials('source:admin',
-                                          adminCredentials.accessKey,
-                                          adminCredentials.secretKey);
+                        adminCredentials.accessKey,
+                        adminCredentials.secretKey);
                 if (this.sourceConfig.transport === 'https') {
                     // provision HTTPS credentials for local Vault admin route
                     this.vaultclientCache.setHttps(
@@ -169,7 +170,7 @@ class QueueProcessor extends EventEmitter {
         if (this.destConfig.auth.type === 'role') {
             if (this.destConfig.auth.vault) {
                 const { host, port, adminPort, adminCredentials }
-                          = this.destConfig.auth.vault;
+                    = this.destConfig.auth.vault;
                 if (host) {
                     this.vaultclientCache.setHost('dest:s3', host);
                 }
@@ -186,7 +187,7 @@ class QueueProcessor extends EventEmitter {
                         // if dest vault admin port not configured, go
                         // through nginx proxy
                         this.vaultclientCache.setProxyPath('dest:admin',
-                                                           proxyIAMPath);
+                            proxyIAMPath);
                     }
                     this.vaultclientCache.loadAdminCredentials(
                         'dest:admin',
@@ -207,7 +208,7 @@ class QueueProcessor extends EventEmitter {
                 // if dest vault port not configured, go through nginx
                 // proxy
                 this.vaultclientCache.setProxyPath('dest:s3',
-                                                   proxyVaultPath);
+                    proxyVaultPath);
             }
             if (this.destConfig.transport === 'https') {
                 // provision HTTPS credentials for IAM route
@@ -241,20 +242,22 @@ class QueueProcessor extends EventEmitter {
     _setupEcho() {
         if (!this.sourceAdminVaultConfigured) {
             throw new Error('echo mode not properly configured: missing ' +
-                            'credentials for source Vault admin client');
+                'credentials for source Vault admin client');
         }
         if (!this.destAdminVaultConfigured) {
             throw new Error('echo mode not properly configured: missing ' +
-                            'credentials for destination Vault ' +
-                            'admin client');
+                'credentials for destination Vault ' +
+                'admin client');
         }
         if (process.env.BACKBEAT_ECHO_TEST_MODE === '1') {
             this.logger.info('starting in echo mode',
-                             { method: 'QueueProcessor.constructor',
-                               testMode: true });
+                {
+                    method: 'QueueProcessor.constructor',
+                    testMode: true,
+                });
         } else {
             this.logger.info('starting in echo mode',
-                             { method: 'QueueProcessor.constructor' });
+                { method: 'QueueProcessor.constructor' });
         }
         this.echoMode = true;
         this.accountCredsCache = {};
@@ -278,6 +281,7 @@ class QueueProcessor extends EventEmitter {
             consumer: this._consumer,
             logger: this.logger,
             metricsHandler,
+            serviceName: this.serviceName,
         };
     }
 
@@ -298,7 +302,7 @@ class QueueProcessor extends EventEmitter {
         this._setupProducer(err => {
             if (err) {
                 this.logger.info('error setting up kafka producer',
-                                 { error: err.message });
+                    { error: err.message });
                 return undefined;
             }
             if (options && options.disableConsumer) {
@@ -315,11 +319,11 @@ class QueueProcessor extends EventEmitter {
                 queueProcessor: this.processKafkaEntry.bind(this),
                 logConsumerMetricsIntervalS: this.repConfig.queueProcessor.logConsumerMetricsIntervalS,
             });
-            this._consumer.on('error', () => {});
+            this._consumer.on('error', () => { });
             this._consumer.on('ready', () => {
                 this._consumer.subscribe();
                 this.logger.info('queue processor is ready to consume ' +
-                                 'replication entries');
+                    'replication entries');
                 this.emit('ready');
             });
             return undefined;
@@ -360,7 +364,7 @@ class QueueProcessor extends EventEmitter {
         const sourceEntry = QueueEntry.createFromKafkaEntry(kafkaEntry);
         if (sourceEntry.error) {
             this.logger.error('error processing source entry',
-                              { error: sourceEntry.error });
+                { error: sourceEntry.error });
             return process.nextTick(() => done(errors.InternalError));
         }
         let task;
@@ -380,13 +384,14 @@ class QueueProcessor extends EventEmitter {
             }
         }
         if (task) {
-            return this.taskScheduler.push({ task, entry: sourceEntry,
-                                             kafkaEntry },
-                                           sourceEntry.getCanonicalKey(),
-                                           done);
+            return this.taskScheduler.push({
+                task,
+                entry: sourceEntry,
+                kafkaEntry,
+            }, sourceEntry.getCanonicalKey(), done);
         }
         this.logger.debug('skip source entry',
-                          { entry: sourceEntry.getLogInfo() });
+            { entry: sourceEntry.getLogInfo() });
         return process.nextTick(done);
     }
 
@@ -459,13 +464,14 @@ class QueueProcessor extends EventEmitter {
     handleMetrics(res, log) {
         log.debug('metrics requested');
 
-        const serviceName = 'ReplicationQueueProcessor';
-
         // consumer stats lag is on a different update cycle so we need to
         // update the metrics when requested
         const lagStats = this._consumer.consumerStats.lag;
         Object.keys(lagStats).forEach(partition => {
-            metricsHandler.lag({ partition, serviceName }, lagStats[partition]);
+            metricsHandler.lag({
+                partition,
+                serviceName: this.serviceName,
+            }, lagStats[partition]);
         });
 
         res.writeHead(200, {
