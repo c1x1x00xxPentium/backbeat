@@ -86,7 +86,7 @@ class QueueProcessor extends EventEmitter {
         this._consumer = null;
         this.site = site;
         this._mProducer = mProducer;
-        this.serviceName = 'ReplicationQueueProcessor';
+        this.serviceName = constants.services.replicationQueueProcessor;
 
         this.echoMode = false;
 
