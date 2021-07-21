@@ -13,7 +13,11 @@ const AccountCredentials =
     require('../../../lib/credentials/AccountCredentials');
 const RoleCredentials =
     require('../../../lib/credentials/RoleCredentials');
-const { metricsExtension, metricsTypeProcessed } = require('../constants');
+const {
+    metricsExtension,
+    metricsTypeProcessed,
+    replicationStages,
+} = require('../constants');
 
 function _extractAccountIdFromRole(role) {
     return role.split(':')[4];
@@ -407,7 +411,7 @@ class ReplicateObject extends BackbeatTask {
         incomingMsg.on('end', () => {
             this.metricsHandler.latency({
                 serviceName,
-                replicationStage: 'ReplicationSourceDataRead',
+                replicationStage: replicationStages.sourceDataRead,
             }, Date.now() - readStartTime);
             this.metricsHandler.sourceDataBytes({ serviceName }, partSize);
             this.metricsHandler.reads({ serviceName });
@@ -450,7 +454,7 @@ class ReplicateObject extends BackbeatTask {
             };
             this.metricsHandler.latency({
                 serviceName,
-                replicationStage: 'ReplicationDestinationDataWrite',
+                replicationStage: replicationStages.destinationDataWrite,
             }, Date.now() - writeStartTime);
             this.mProducer.publishMetrics(
                 extMetrics, metricsTypeProcessed, metricsExtension, () => { });
@@ -503,7 +507,7 @@ class ReplicateObject extends BackbeatTask {
             }
             this.metricsHandler.latency({
                 serviceName,
-                replicationStage: 'ReplicationDestinationMetadataWrite',
+                replicationStage: replicationStages.destinationMetadataWrite,
             }, Date.now() - writeStartTime);
             this.metricsHandler.metadataReplicationBytes({
                 serviceName,
