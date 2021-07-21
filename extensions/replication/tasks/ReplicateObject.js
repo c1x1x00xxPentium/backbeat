@@ -159,9 +159,9 @@ class ReplicateObject extends BackbeatTask {
                     replicationStatus,
                     reason,
                 });
-                this.metricsHandler.metadataStatus({ replicationStatus });
+                this.metricsHandler.metadataReplicationStatus({ replicationStatus });
                 if (updateData) {
-                    this.metricsHandler.dataStatus({ replicationStatus });
+                    this.metricsHandler.dataReplicationStatus({ replicationStatus });
                 }
             }
             // Commit whether there was an error or not to allow
@@ -338,9 +338,11 @@ class ReplicateObject extends BackbeatTask {
     }
 
     _getAndPutPartOnce(sourceEntry, destEntry, part, log, done) {
+        const serviceName = this.serviceName;
         const doneOnce = jsutil.once(done);
         const partObj = new ObjectMDLocation(part);
         const partNumber = partObj.getPartNumber();
+        const partSize = partObj.getPartSize();
         let destReq = null;
         let sourceReqAborted = false;
         let destReqAborted = false;
@@ -376,6 +378,7 @@ class ReplicateObject extends BackbeatTask {
             return doneOnce(err);
         });
         const incomingMsg = sourceReq.createReadStream();
+        const readStartTime = Date.now();
         incomingMsg.on('error', err => {
             if (!sourceReqAborted && !destReqAborted) {
                 destReq.abort();
@@ -402,18 +405,24 @@ class ReplicateObject extends BackbeatTask {
             return doneOnce(err);
         });
         incomingMsg.on('end', () => {
-            this.metricsHandler.reads({ serviceName: this.serviceName });
+            this.metricsHandler.latency({
+                serviceName,
+                replicationStage: 'ReplicationSourceDataRead',
+            }, Date.now() - readStartTime);
+            this.metricsHandler.sourceDataBytes({ serviceName }, partSize);
+            this.metricsHandler.reads({ serviceName });
         });
         log.debug('putting data', { entry: destEntry.getLogInfo(), part });
         destReq = this.backbeatDest.putData({
             Bucket: destEntry.getBucket(),
             Key: destEntry.getObjectKey(),
             CanonicalID: destEntry.getOwnerId(),
-            ContentLength: partObj.getPartSize(),
+            ContentLength: partSize,
             ContentMD5: partObj.getPartETag(),
             Body: incomingMsg,
         });
         attachReqUids(destReq, log);
+        const writeStartTime = Date.now();
         return destReq.send((err, data) => {
             if (err) {
                 if (!destReqAborted) {
@@ -437,11 +446,19 @@ class ReplicateObject extends BackbeatTask {
             const extMetrics = {};
             extMetrics[this.site] = {
                 ops: 1,
-                bytes: partObj.getPartSize(),
+                bytes: partSize,
             };
+            this.metricsHandler.latency({
+                serviceName,
+                replicationStage: 'ReplicationDestinationDataWrite',
+            }, Date.now() - writeStartTime);
             this.mProducer.publishMetrics(
                 extMetrics, metricsTypeProcessed, metricsExtension, () => { });
-            this.metricsHandler.writes({ serviceName: this.serviceName });
+            this.metricsHandler.dataReplicationBytes({ serviceName }, partSize);
+            this.metricsHandler.writes({
+                serviceName,
+                replicationContent: 'data',
+            });
             return doneOnce(null, partObj.getValue());
         });
     }
@@ -452,6 +469,7 @@ class ReplicateObject extends BackbeatTask {
             replicationStatus: entry.getReplicationSiteStatus(this.site),
         });
         const cbOnce = jsutil.once(cb);
+        const serviceName = this.serviceName;
 
         // sends extra header x-scal-replication-content to the target
         // if it's a metadata operation only
@@ -465,6 +483,7 @@ class ReplicateObject extends BackbeatTask {
             ReplicationContent: replicationContent,
         });
         attachReqUids(req, log);
+        const writeStartTime = Date.now();
         req.send((err, data) => {
             if (err) {
                 // eslint-disable-next-line no-param-reassign
@@ -482,6 +501,17 @@ class ReplicateObject extends BackbeatTask {
                     });
                 return cbOnce(err);
             }
+            this.metricsHandler.latency({
+                serviceName,
+                replicationStage: 'ReplicationDestinationMetadataWrite',
+            }, Date.now() - writeStartTime);
+            this.metricsHandler.metadataReplicationBytes({
+                serviceName,
+            }, Buffer.byteLength(mdBlob));
+            this.metricsHandler.writes({
+                serviceName,
+                replicationContent: 'metadata',
+            });
             return cbOnce(null, data);
         });
     }
@@ -680,6 +710,7 @@ class ReplicateObject extends BackbeatTask {
             log.info('target object version does not exist, retrying ' +
                 'a full replication',
                 { entry: sourceEntry.getLogInfo() });
+            // TODO: Is this the right place to capture retry metrics?
             return this._processQueueEntryRetryFull(
                 sourceEntry, destEntry, kafkaEntry, log, done);
         }
