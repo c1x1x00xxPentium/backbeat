@@ -143,7 +143,6 @@ class ReplicateObject extends BackbeatTask {
             sourceEntry.toFailedEntry(this.site);
         updatedSourceEntry.setReplicationSiteDataStoreVersionId(this.site,
             sourceEntry.getReplicationSiteDataStoreVersionId(this.site));
-        // TODO: understand when only metadata is updated!
         const updateData = sourceEntry.getReplicationContent().includes('DATA');
         const kafkaEntries = [updatedSourceEntry.toKafkaEntry(this.site)];
         this.replicationStatusProducer.send(kafkaEntries, err => {
@@ -155,7 +154,6 @@ class ReplicateObject extends BackbeatTask {
                     replicationStatus,
                     error: err,
                 });
-                // TODO: Update failure metric when publish fails?
             } else {
                 log.info('replication status published', {
                     topic: this.repConfig.replicationStatusTopic,
@@ -247,8 +245,7 @@ class ReplicateObject extends BackbeatTask {
             }
             if (roles[0] !== entryRoles[0]) {
                 log.error('role in replication entry for source does ' +
-                    'not match role in bucket replication ' +
-                    'configuration ',
+                    'not match role in bucket replication configuration ',
                     {
                         method: 'ReplicateObject._setupRolesOnce',
                         entry: entry.getLogInfo(),
@@ -259,8 +256,7 @@ class ReplicateObject extends BackbeatTask {
             }
             if (roles[1] !== entryRoles[1]) {
                 log.error('role in replication entry for target does ' +
-                    'not match role in bucket replication ' +
-                    'configuration ',
+                    'not match role in bucket replication configuration ',
                     {
                         method: 'ReplicateObject._setupRolesOnce',
                         entry: entry.getLogInfo(),
@@ -321,8 +317,7 @@ class ReplicateObject extends BackbeatTask {
             const partObj = new ObjectMDLocation(part);
             return partObj.getDataStoreETag() === undefined;
         })) {
-            log.error('cannot replicate object without dataStoreETag ' +
-                'property',
+            log.error('cannot replicate object without dataStoreETag property',
                 {
                     method: 'ReplicateObject._getAndPutData',
                     entry: sourceEntry.getLogInfo(),
@@ -409,7 +404,7 @@ class ReplicateObject extends BackbeatTask {
             return doneOnce(err);
         });
         incomingMsg.on('end', () => {
-            this.metricsHandler.latency({
+            this.metricsHandler.timeElapsed({
                 serviceName,
                 replicationStage: replicationStages.sourceDataRead,
             }, Date.now() - readStartTime);
@@ -452,7 +447,7 @@ class ReplicateObject extends BackbeatTask {
                 ops: 1,
                 bytes: partSize,
             };
-            this.metricsHandler.latency({
+            this.metricsHandler.timeElapsed({
                 serviceName,
                 replicationStage: replicationStages.destinationDataWrite,
             }, Date.now() - writeStartTime);
@@ -505,7 +500,7 @@ class ReplicateObject extends BackbeatTask {
                     });
                 return cbOnce(err);
             }
-            this.metricsHandler.latency({
+            this.metricsHandler.timeElapsed({
                 serviceName,
                 replicationStage: replicationStages.destinationMetadataWrite,
             }, Date.now() - writeStartTime);
